@@ -1,0 +1,35 @@
+# lab5-programmable-cloud -- Python dependencies
+#
+# Setup:
+#   python3 -m venv .venv
+#   source .venv/bin/activate
+#   pip install -r requirements.txt
+#
+# Direct dependencies (everything else is transitive):
+#   google-api-python-client  -- provides googleapiclient.discovery
+#   google-auth               -- provides google.auth
+#
+# Generated with `pip freeze` on Python 3.14.4.
+
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.1
+cryptography==50.0.1
+google-api-core==2.39.0
+google-api-python-client==2.200.0
+google-auth==2.58.1
+google-auth-httplib2==0.4.2
+googleapis-common-protos==1.75.4
+httplib2==0.32.0
+idna==3.20
+opentelemetry-api==1.45.0
+proto-plus==1.28.4
+protobuf==7.36.2
+pyasn1==0.6.4
+pyasn1_modules==0.4.2
+pycparser==3.0
+pyparsing==3.3.3
+requests==2.34.2
+typing_extensions==4.16.0
+uritemplate==4.2.0
+urllib3==2.8.0
