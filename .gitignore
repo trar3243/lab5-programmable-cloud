@@ -11,3 +11,4 @@ service-account*.json
 credentials*.json
 *-key.json
 *.pem
+service-credentials.json
