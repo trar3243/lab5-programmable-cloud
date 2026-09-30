@@ -15,10 +15,7 @@ INSTANCE_NAME = "troys-vm"
 FIREWALL_RULE = 'allow-5000'
 NETWORK_TAG = 'allow-5000'
 
-#
-# Stub code - just lists all instances
-#
-
+# the command to run in shell we want to replicate in create instance 
 """
 gcloud compute instances create test-vm \
     --zone=us-west1-b \
@@ -66,13 +63,22 @@ def create_instance(
         compute,
         project,
         zone,
-        name
+        name,
+        source_disk_image_override = None,
+        startup_script = startup_thing,
+        network_tags = None
     ):
 
-    # first, this is comparable to the google tutorial's get_image_from_family
-    image_response = compute.images().getFromFamily(
-        project='ubuntu-os-cloud', family='ubuntu-2204-lts').execute()
-    source_disk_image = image_response['selfLink']
+    # first, pick the boot disk source. with an override we boot from that
+    # snapshot; otherwise look up the latest Ubuntu image, comparable to the
+    # google tutorial's get_image_from_family
+    if source_disk_image_override:
+        init_params = {'sourceSnapshot': source_disk_image_override}
+    else:
+        image_response = compute.images().getFromFamily(
+            project='ubuntu-os-cloud', family='ubuntu-2204-lts'
+        ).execute()
+        init_params = {'sourceImage': image_response['selfLink']}
 
     # second, initialize the parameters
     machine_type = f'zones/{zone}/machineTypes/e2-micro'
@@ -87,9 +93,7 @@ def create_instance(
             {
                 'boot': True,
                 'autoDelete': True,
-                'initializeParams': {
-                    'sourceImage': source_disk_image,
-                }
+                'initializeParams': init_params
             }
         ],
 
@@ -108,8 +112,14 @@ def create_instance(
         # key is special -- the guest agent fetches it and runs it at boot.
         'metadata': {
             'items': [
-                {'key': 'startup-script', 'value': startup_thing}
+                {'key': 'startup-script', 'value': startup_script}
             ]
+        },
+
+        # tags set here apply at creation, so firewall rules that target
+        # them (like allow-5000) take effect without a later setTags call
+        'tags': {
+            'items': network_tags or []
         },
     }
 
@@ -146,8 +156,8 @@ def wait_for_operation(compute, project, zone, operation):
                 raise Exception(result['error'])
             return result
 
-        # don't hammer the API -- wait a second between polls
-        time.sleep(1)
+        # poll every 0.1s so part2's creation timings are precise
+        time.sleep(.1)
 
 def firewall_rule_exists(compute, project, name):
     """True if a firewall rule called `name` already exists.
@@ -189,7 +199,8 @@ def add_network_tag(compute, project, zone, instance_name, tag):
     instance = compute.instances().get(
         project=project,
         zone=zone,
-        instance=instance_name).execute()
+        instance=instance_name
+    ).execute()
 
     # an instance with no tags still has a fingerprint, but use .get() so a
     # missing 'tags' key can't blow up
@@ -210,7 +221,8 @@ def get_ip(compute, project,zone, instance_name):
     instance = compute.instances().get(
         project=project,
         zone=zone,
-        instance=instance_name).execute()
+        instance=instance_name
+    ).execute()
     
     ip = instance['networkInterfaces'][0]['accessConfigs'][0]['natIP'] # from before 
     return ip 
@@ -221,23 +233,31 @@ def list_instances(compute, project, zone):
     # so callers can always iterate the result
     return result['items'] if 'items' in result else []
 
-if firewall_rule_exists(service, project, FIREWALL_RULE):
-    print(f'Firewall rule {FIREWALL_RULE} already exists.')
-else:
-    print(f'Creating firewall rule {FIREWALL_RULE}...')
-    create_firewall_rule(service, project, FIREWALL_RULE, NETWORK_TAG)
+def main():
+    if firewall_rule_exists(service, project, FIREWALL_RULE):
+        print(f'Firewall rule {FIREWALL_RULE} already exists.')
+    else:
+        print(f'Creating firewall rule {FIREWALL_RULE}...')
+        create_firewall_rule(service, project, FIREWALL_RULE, NETWORK_TAG)
 
-op = create_instance(service, project, ZONE, INSTANCE_NAME)
-wait_for_operation(service, project, ZONE, op['name'])
+    op = create_instance(service, project, ZONE, INSTANCE_NAME)
+    wait_for_operation(service, project, ZONE, op['name'])
 
-# to ssh in : gcloud compute ssh troys-vm --zone=us-west1-b
+    # to ssh in : gcloud compute ssh troys-vm --zone=us-west1-b
+    print("Your running instances are:")
+    for instance in list_instances(service, project, ZONE):
+        print(instance['name'])
 
-print("Your running instances are:")
-for instance in list_instances(service, project, ZONE):
-    print(instance['name'])
+    # GCP's firewall blocks inbound port 5000 by default. The allow-5000 rule
+    # above opens it, but only for VMs carrying the allow-5000 network tag
+    # (its targetTags). Without this tag flask still runs on the VM, but the
+    # browser can't reach http://<ip>:5000. Here the tag is added after
+    # creation with a second API call (setTags);
+    print("Applying network tag...")
+    tag_op = add_network_tag(service, project, ZONE, INSTANCE_NAME, NETWORK_TAG)
+    wait_for_operation(service, project, ZONE, tag_op['name'])
+    ip = get_ip(service, project,ZONE, INSTANCE_NAME)
+    print(f"The application will be available at http://{ip}:5000 it may take several minutes to start up")
 
-print("Applying network tag...")
-tag_op = add_network_tag(service, project, ZONE, INSTANCE_NAME, NETWORK_TAG)
-wait_for_operation(service, project, ZONE, tag_op['name'])
-ip = get_ip(service, project,ZONE, INSTANCE_NAME)
-print(f"The application will be available at http://{ip}:5000 it may take several minutes to start up")
+if __name__ == "__main__":
+    main()
